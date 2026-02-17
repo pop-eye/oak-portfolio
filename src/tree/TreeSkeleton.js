@@ -63,14 +63,13 @@ export class TreeSkeleton {
         stack.push({ nodeIdx: children[0], segment });
       } else {
         // Fork — finish this segment (including the fork node),
-        // then start new child segments from the child nodes directly.
-        // The fork node is NOT duplicated into child segments — this
-        // prevents overlapping tube geometry at thick junctions.
+        // then start new child segments that ALSO include the fork node
+        // so tube geometry connects seamlessly at the junction.
         if (segment.length >= 2) {
           segments.push(segment);
         }
         for (const child of children) {
-          stack.push({ nodeIdx: child, segment: [] });
+          stack.push({ nodeIdx: child, segment: [nodeIdx] });
         }
       }
     }

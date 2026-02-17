@@ -334,12 +334,11 @@ export class TrunkMesh {
       const node = nodes[forkIdx];
       const radius = node.thickness;
 
-      // Skip junctions that are too thin to see or too thick
-      // (thick junctions overlap naturally and welds cause messy geometry)
-      if (radius < 0.04 || radius > 0.18) continue;
+      // Skip junctions that are too thin to see
+      if (radius < 0.02) continue;
 
-      const weldRadius = radius * 1.1;
-      const segs = 3;
+      const weldRadius = radius * 1.15;
+      const segs = radius > 0.15 ? 4 : 3;
       const positions = [];
       const uvs = [];
       const colors = [];
