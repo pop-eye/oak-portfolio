@@ -22,7 +22,7 @@ export class NoiseDeformer {
    * @param {number} radius - local branch radius
    * @param {number} branchSeed - per-branch seed
    */
-  applySpineNoise(point, t, radius, branchSeed) {
+  applySpineNoise(point, t, radius, branchSeed, fade = 1.0) {
     const gnarliness = this.config.gnarliness;
     // Amplitude inversely proportional to sqrt(radius): thin branches wobble more
     const intensity = Math.max(1, 1 / Math.sqrt(Math.max(0.01, radius))) * gnarliness;
@@ -32,8 +32,8 @@ export class NoiseDeformer {
     const py = point.y * freq;
     const pz = point.z * freq;
 
-    const dx = this.simplex.noise3D(px, py, pz + branchSeed) * intensity * 0.15;
-    const dz = this.simplex.noise3D(px + 100, py, pz + branchSeed) * intensity * 0.15;
+    const dx = this.simplex.noise3D(px, py, pz + branchSeed) * intensity * 0.15 * fade;
+    const dz = this.simplex.noise3D(px + 100, py, pz + branchSeed) * intensity * 0.15 * fade;
 
     point.x += dx;
     point.z += dz;

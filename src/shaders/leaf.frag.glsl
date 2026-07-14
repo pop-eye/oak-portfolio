@@ -9,16 +9,28 @@ uniform vec3 uLightDirection;
 uniform float uTranslucencyPower;
 uniform float uTranslucencyScale;
 uniform float uSeasonMix;
+uniform float uMonochrome; // 0=colour  1=dark-mono  -1=light-mono
 
 void main() {
   // Alpha test
   vec4 texColour = texture2D(uLeafTexture, vLeafUv);
   if (texColour.a < 0.5) discard;
 
-  // === COLOUR VARIATION — 3 green tones ===
-  vec3 deepGreen = vec3(0.12, 0.28, 0.06);
-  vec3 midGreen = vec3(0.20, 0.42, 0.10);
-  vec3 yellowGreen = vec3(0.35, 0.48, 0.12);
+  // === COLOUR VARIATION — 3 tones, mode-aware ===
+  vec3 deepGreen, midGreen, yellowGreen;
+  if (uMonochrome > 0.5) {
+    deepGreen   = vec3(0.72, 0.74, 0.76);
+    midGreen    = vec3(0.84, 0.86, 0.88);
+    yellowGreen = vec3(0.93, 0.95, 0.96);
+  } else if (uMonochrome < -0.5) {
+    deepGreen   = vec3(0.10, 0.10, 0.10);
+    midGreen    = vec3(0.20, 0.20, 0.20);
+    yellowGreen = vec3(0.30, 0.30, 0.30);
+  } else {
+    deepGreen   = vec3(0.12, 0.28, 0.06);
+    midGreen    = vec3(0.20, 0.42, 0.10);
+    yellowGreen = vec3(0.35, 0.48, 0.12);
+  }
 
   vec3 leafColour;
   if (vColourVariation < 0.5) {
@@ -28,9 +40,20 @@ void main() {
   }
 
   // === AUTUMN TONES (optional, controlled by uSeasonMix) ===
-  vec3 autumnDeep = vec3(0.55, 0.15, 0.05);
-  vec3 autumnMid = vec3(0.75, 0.35, 0.08);
-  vec3 autumnLight = vec3(0.85, 0.65, 0.12);
+  vec3 autumnDeep, autumnMid, autumnLight;
+  if (uMonochrome > 0.5) {
+    autumnDeep  = vec3(0.68, 0.70, 0.72);
+    autumnMid   = vec3(0.80, 0.82, 0.84);
+    autumnLight = vec3(0.90, 0.92, 0.94);
+  } else if (uMonochrome < -0.5) {
+    autumnDeep  = vec3(0.08, 0.08, 0.08);
+    autumnMid   = vec3(0.16, 0.16, 0.16);
+    autumnLight = vec3(0.24, 0.24, 0.24);
+  } else {
+    autumnDeep  = vec3(0.55, 0.15, 0.05);
+    autumnMid   = vec3(0.75, 0.35, 0.08);
+    autumnLight = vec3(0.85, 0.65, 0.12);
+  }
 
   vec3 autumnColour;
   if (vColourVariation < 0.5) {
@@ -55,8 +78,11 @@ void main() {
   vec3 H = normalize(L + N * 0.3);
   float VdotH = pow(clamp(dot(V, -H), 0.0, 1.0), uTranslucencyPower);
 
-  // Warm yellow-green glow when backlit
-  vec3 transColour = leafColour * vec3(1.3, 1.2, 0.5) * VdotH * uTranslucencyScale;
+  // Backlit glow colour varies by mode
+  vec3 transBase = uMonochrome > 0.5  ? vec3(1.3, 1.3, 1.35)
+                 : uMonochrome < -0.5 ? vec3(0.7, 0.7, 0.70)
+                 : vec3(1.3, 1.2, 0.5);
+  vec3 transColour = leafColour * transBase * VdotH * uTranslucencyScale;
   csm_Emissive = transColour;
 
   // === ROUGHNESS ===

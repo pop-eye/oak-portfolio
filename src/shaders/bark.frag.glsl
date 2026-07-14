@@ -9,6 +9,7 @@ uniform sampler2D uBarkRoughness;
 uniform sampler2D uBarkAO;
 uniform float uTexScale;
 uniform float uProceduralWeight;
+uniform float uMonochrome; // 0=colour  1=dark-mono  -1=light-mono
 
 // ── Bark height function for procedural normals ─────────────
 // Defines fine bark surface: vertical fissures, domain-warped ridges
@@ -133,10 +134,21 @@ void main() {
   float height = hX * blend.x + hY * blend.y + hZ * blend.z;
 
   // ── Height-driven colour variation ────────────────────────
-  // Furrows: darker, cooler
-  vec3 furrowTint = vec3(0.12, 0.10, 0.08);
-  // Ridges: lighter, warmer
-  vec3 ridgeTint = vec3(0.45, 0.35, 0.25);
+  // Bark colour depends on colour mode.
+  vec3 furrowTint, ridgeTint;
+  if (uMonochrome > 0.5) {
+    // Dark mono: white-grey on black
+    furrowTint = vec3(0.52, 0.52, 0.52);
+    ridgeTint  = vec3(0.95, 0.95, 0.95);
+  } else if (uMonochrome < -0.5) {
+    // Light mono: dark-grey on white
+    furrowTint = vec3(0.06, 0.06, 0.06);
+    ridgeTint  = vec3(0.30, 0.30, 0.30);
+  } else {
+    // Original colour
+    furrowTint = vec3(0.12, 0.10, 0.08);
+    ridgeTint  = vec3(0.45, 0.35, 0.25);
+  }
   vec3 heightTint = mix(furrowTint, ridgeTint, smoothstep(0.2, 0.8, height));
 
   // Modulate texture diffuse with height tint

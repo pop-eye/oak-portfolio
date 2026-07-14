@@ -18,8 +18,9 @@ export class LeafSystem {
     this.config = config;
     this.rng = mulberry32(config.seed + 1234);
 
-    this.depthThreshold = options.depthThreshold || 0.4;
-    this.maxClusterSize = options.maxClusterSize || 8;
+    this.depthThreshold = options.depthThreshold || 0.25;
+    this.maxClusterSize = options.maxClusterSize || 16;
+    this.minSpacing     = options.minSpacing     || 0.22;
     this.clusterRadius = options.clusterRadius || 0.55;
     this.leafSize = options.leafSize || 0.35;
     this.chunkDivisions = options.chunkDivisions || [3, 2, 3]; // 18 chunks
@@ -60,45 +61,125 @@ export class LeafSystem {
     const rng = this.rng;
     const leaves = [];
 
-    // Find qualifying nodes — outer canopy only
+    // Prefer terminal twigs, retaining a sparse layer of leaves on nearby
+    // outer branches so the canopy remains full without filling its interior.
     const candidates = [];
     for (let i = 0; i < nodes.length; i++) {
-      if (nodes[i].depth >= minDepth) {
+      const isTerminal = this.skeleton.getChildren(i).length === 0;
+      const isOuterTwig = nodes[i].depth >= minDepth;
+      if (isTerminal || (isOuterTwig && rng() < 0.55)) {
         candidates.push(i);
       }
     }
 
-    // Trunk centre for outward-facing bias
-    const trunkCentre = new THREE.Vector3(0, this.config.crownCenterY, 0);
+    // Terminals have the highest leaf priority. Sort them first so the
+    // spatial exclusion below keeps tip leaves and discards redundant
+    // inner-twig duplicates rather than the other way around.
+    candidates.sort((a, b) => {
+      const aT = this.skeleton.getChildren(a).length === 0 ? 0 : 1;
+      const bT = this.skeleton.getChildren(b).length === 0 ? 0 : 1;
+      if (aT !== bT) return aT - bT;
+      return nodes[b].depth - nodes[a].depth;
+    });
+
+    // Spatial exclusion grid — prevents leaf clusters from stacking on top
+    // of each other when many terminal twigs converge at the end of a thick
+    // branch.  Any candidate closer than minSpacing to an already-accepted
+    // node is skipped entirely.
+    const minSpacing  = this.minSpacing;
+    const gridScale   = 1.0 / minSpacing;
+    const leafGrid    = new Map();
+
+    const _gridKey = (p) => {
+      const gx = Math.floor(p.x * gridScale);
+      const gy = Math.floor(p.y * gridScale);
+      const gz = Math.floor(p.z * gridScale);
+      return `${gx},${gy},${gz}`;
+    };
+    const _isTooClose = (p) => {
+      const gx = Math.floor(p.x * gridScale);
+      const gy = Math.floor(p.y * gridScale);
+      const gz = Math.floor(p.z * gridScale);
+      for (let dx = -1; dx <= 1; dx++)
+        for (let dy = -1; dy <= 1; dy++)
+          for (let dz = -1; dz <= 1; dz++)
+            if (leafGrid.has(`${gx+dx},${gy+dy},${gz+dz}`)) return true;
+      return false;
+    };
 
     for (const nodeIdx of candidates) {
       const node = nodes[nodeIdx];
-      // Cluster size: 3–maxClusterSize, thicker nodes get more
+      const parent = nodes[node.parentIndex];
+      if (!parent) continue;
+
+      if (_isTooClose(node.position)) continue;
+      leafGrid.set(_gridKey(node.position), true);
+
+      const isTerminal = this.skeleton.getChildren(nodeIdx).length === 0;
+      const branchDirection = node.position.clone().sub(parent.position);
+      const branchLength = branchDirection.length();
+      if (branchLength < 1e-6) continue;
+      branchDirection.divideScalar(branchLength);
+
+      // Build a stable perpendicular frame around the current branch segment.
+      const referenceAxis = Math.abs(branchDirection.y) < 0.9
+        ? new THREE.Vector3(0, 1, 0)
+        : new THREE.Vector3(1, 0, 0);
+      const radialAxis = new THREE.Vector3()
+        .crossVectors(branchDirection, referenceAxis)
+        .normalize();
+      const bitangentAxis = new THREE.Vector3()
+        .crossVectors(branchDirection, radialAxis)
+        .normalize();
+
+      // Terminal twigs carry clusters; the occasional inner twig gets fewer.
       const thicknessFactor = Math.min(1, node.thickness / 0.1);
-      const clusterSize = 4 + Math.floor(rng() * (this.maxClusterSize - 4) * (0.5 + 0.5 * thicknessFactor));
-      const clusterR = this.clusterRadius * (0.7 + 0.6 * thicknessFactor);
+      const minClusterSize = isTerminal ? 3 : 1;
+      const maxClusterSize = isTerminal ? this.maxClusterSize : 2;
+      const clusterSize = minClusterSize + Math.floor(
+        rng() * (maxClusterSize - minClusterSize + 1) * (0.5 + 0.5 * thicknessFactor)
+      );
 
       for (let j = 0; j < clusterSize; j++) {
-        // Random offset within sphere
-        const theta = rng() * Math.PI * 2;
-        const phi = Math.acos(2 * rng() - 1);
-        const r = clusterR * Math.cbrt(rng()); // cube root for uniform volume
-        const ox = r * Math.sin(phi) * Math.cos(theta);
-        const oy = r * Math.sin(phi) * Math.sin(theta);
-        const oz = r * Math.cos(phi);
-
-        const pos = new THREE.Vector3(
-          node.position.x + ox,
-          node.position.y + oy,
-          node.position.z + oz
+        // Place the base tightly on the branch surface — keep scatter short
+        // so leaves don't drift away from the visible twig they belong to.
+        const distanceAlongBranch = rng() * Math.min(branchLength * 0.4, 0.1);
+        const branchT = 1 - distanceAlongBranch / branchLength;
+        const branchPoint = parent.position.clone().lerp(node.position, branchT);
+        const branchRadius = THREE.MathUtils.lerp(
+          parent.thickness,
+          node.thickness,
+          branchT
+        );
+        const radialAngle = rng() * Math.PI * 2;
+        const radialDirection = radialAxis.clone()
+          .multiplyScalar(Math.cos(radialAngle))
+          .addScaledVector(bitangentAxis, Math.sin(radialAngle));
+        // Minimum offset is proportional to leafSize so even the thinnest
+        // twigs visibly anchor each leaf at the branch surface.
+        const pos = branchPoint.addScaledVector(
+          radialDirection,
+          Math.max(branchRadius * 1.1, this.leafSize * 0.2)
         );
 
-        // Rotation: face roughly outward from trunk centre + random variation
-        const outward = pos.clone().sub(trunkCentre).normalize();
-        const yRot = Math.atan2(outward.x, outward.z) + (rng() - 0.5) * 1.0;
-        const xTilt = (rng() - 0.5) * 0.6;
-        const zTilt = (rng() - 0.5) * 0.6;
-        const rot = new THREE.Euler(xTilt, yRot, zTilt);
+        // Grow the local +Y axis away from the attachment point, then vary
+        // its roll and lean so each leaf remains attached but is not uniform.
+        const leafDirection = branchDirection.clone()
+          .multiplyScalar(0.35 + rng() * 0.2)
+          .addScaledVector(radialDirection, 0.8 + rng() * 0.25)
+          .addScaledVector(new THREE.Vector3(0, 1, 0), (rng() - 0.25) * 0.3)
+          .normalize();
+        const alignment = new THREE.Quaternion().setFromUnitVectors(
+          new THREE.Vector3(0, 1, 0),
+          leafDirection
+        );
+        const roll = new THREE.Quaternion().setFromAxisAngle(
+          new THREE.Vector3(0, 1, 0),
+          (rng() - 0.5) * Math.PI * 2
+        );
+        const rot = new THREE.Euler().setFromQuaternion(
+          alignment.multiply(roll)
+        );
 
         const scale = 0.8 + rng() * 0.4;
         const windPhase = rng() * Math.PI * 2;
@@ -145,8 +226,10 @@ export class LeafSystem {
       chunks.get(key).push(i);
     }
 
-    // Create geometry (shared)
+    // Move the plane so its local bottom edge is at the instance origin.
+    // Instance positions can therefore be used as actual branch attachments.
     const geometry = new THREE.PlaneGeometry(this.leafSize, this.leafSize, 1, 1);
+    geometry.translate(0, this.leafSize * 0.5, 0);
 
     // Create one InstancedMesh per chunk
     const meshes = [];
@@ -208,6 +291,7 @@ export class LeafSystem {
         uTranslucencyPower: { value: 3.0 },
         uTranslucencyScale: { value: 0.6 },
         uSeasonMix: { value: 0.0 },
+        uMonochrome: { value: 0.0 },
       },
       side: THREE.DoubleSide,
       alphaTest: 0.5,

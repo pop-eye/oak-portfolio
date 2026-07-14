@@ -13,6 +13,7 @@ import { CameraController } from './interaction/CameraController.js';
 import { FruitRaycaster } from './interaction/Raycaster.js';
 import { HoverEffects } from './interaction/HoverEffects.js';
 import { PortfolioOverlay } from './interaction/PortfolioOverlay.js';
+import { FruitHighlighter } from './interaction/FruitHighlighter.js';
 import { Lighting } from './environment/Lighting.js';
 import { Ground } from './environment/Ground.js';
 import { PostProcessing } from './environment/PostProcessing.js';
@@ -156,7 +157,7 @@ if (device.isLowEnd) {
 }
 
 // ── Ground Plane ─────────────────────────────────────────────
-new Ground(scene);
+const ground = new Ground(scene);
 
 // ── Dev FPS Monitor ─────────────────────────────────────────
 let stats = null;
@@ -183,6 +184,7 @@ const barkUniforms = {
   uBarkAO: { value: barkTextures.ao },
   uTexScale: { value: 0.25 },
   uProceduralWeight: { value: 0.6 },
+  uMonochrome:        { value: 0.0 },
 };
 
 const barkMaterial = new CustomShaderMaterial({
@@ -197,17 +199,34 @@ const barkMaterial = new CustomShaderMaterial({
   vertexColors: true,
 });
 
+// ── Mobile performance overrides ────────────────────────────────────────────
+// Reduce colonisation complexity on mobile so generation stays under ~1 s
+// and the render loop remains responsive.
+const treeConfig = device.isMobile ? {
+  ...TREE_CONFIG,
+  attractorCount: device.isLowEnd ? 1500 : 2500,
+  maxIterations:  device.isLowEnd ? 120  : 150,
+} : TREE_CONFIG;
+
+// Leaf density options: greatly reduced on mobile to stay within GPU
+// memory and fill-rate limits.
+const leafOptions = device.isMobile ? {
+  maxClusterSize: device.isLowEnd ? 5 : 8,
+  depthThreshold: 0.35,
+  minSpacing:     device.isLowEnd ? 0.55 : 0.4,
+} : {};
+
 // ── Generate Tree ───────────────────────────────────────────
 const t0 = performance.now();
 
 console.time('skeleton');
-const skeleton = new TreeSkeleton(TREE_CONFIG);
-skeleton.generate();
+const skeleton = new TreeSkeleton(treeConfig);
+await skeleton.generate();
 console.timeEnd('skeleton');
 loader.completeStep('Growing tree');
 
 console.time('mesh');
-const trunkMeshBuilder = new TrunkMesh(skeleton, TREE_CONFIG);
+const trunkMeshBuilder = new TrunkMesh(skeleton, treeConfig);
 const trunkGeometry = trunkMeshBuilder.build();
 console.timeEnd('mesh');
 
@@ -223,7 +242,7 @@ loader.completeStep('Shaping bark');
 
 // ── Leaf System ────────────────────────────────────────────
 console.time('leaves');
-const leafSystem = new LeafSystem(skeleton, TREE_CONFIG);
+const leafSystem = new LeafSystem(skeleton, treeConfig, leafOptions);
 const leafChunks = leafSystem.build();
 for (const chunk of leafChunks) {
   chunk.castShadow = true;
@@ -238,7 +257,7 @@ loader.completeStep('Adding leaves');
 
 // ── Fruit System ───────────────────────────────────────────
 console.time('fruit');
-const fruitSystem = new FruitSystem(skeleton, TREE_CONFIG, portfolioItems);
+const fruitSystem = new FruitSystem(skeleton, treeConfig, portfolioItems);
 const fruitGroup = fruitSystem.build();
 scene.add(fruitGroup);
 fruitGroup.traverse((child) => {
@@ -257,6 +276,8 @@ try {
 
 if (device.isMobile && postProcessing) {
   if (postProcessing.bloomEffect) postProcessing.bloomEffect.intensity = 0;
+  // N8AO ambient occlusion is too expensive for mobile GPUs.
+  if (postProcessing.n8aoPass) postProcessing.n8aoPass.enabled = false;
 }
 if (device.isLowEnd && postProcessing) {
   postProcessing.setLowQuality();
@@ -272,10 +293,17 @@ const fruitRaycaster = new FruitRaycaster(camera, fruitSystem.fruitMeshes);
 fruitRaycaster.onHoverEnter = (mesh) => hoverEffects.onHoverEnter(mesh);
 fruitRaycaster.onHoverExit = (mesh) => hoverEffects.onHoverExit(mesh);
 
+// Cycles through fruits automatically, drawing a digital reticle on each.
+const fruitHighlighter = new FruitHighlighter(scene, fruitSystem.fruitMeshes, camera);
+// Label clicks use the same zoom-and-open flow as direct fruit clicks.
+fruitHighlighter.onLabelClick = (mesh) => fruitRaycaster.onClick?.(mesh);
+
 fruitRaycaster.onClick = async (fruitMesh) => {
   const item = fruitMesh.userData.portfolioItem;
   fruitRaycaster.disable();
+  fruitHighlighter.disable();
   hoverEffects.onHoverExit(fruitMesh);
+  document.getElementById('fruit-nav').style.display = 'none';
 
   const fruitWorldPos = new THREE.Vector3();
   fruitMesh.getWorldPosition(fruitWorldPos);
@@ -297,10 +325,73 @@ fruitRaycaster.onClick = async (fruitMesh) => {
     });
     await cameraController.flyBack(1.0);
     fruitRaycaster.enable();
+    fruitHighlighter.enable();
+    document.getElementById('fruit-nav').style.display = 'flex';
+    document.getElementById('fruit-nav-counter').textContent =
+      `${fruitHighlighter.currentIdx + 1} / ${fruitSystem.fruitMeshes.length}`;
   };
 };
 
+// ── Finalize Loading Screen ────────────────────────────────
 loader.completeStep('Preparing scene');
+await loader.hide();
+
+// ── Fruit Navigation Arrows ───────────────────────────────────────
+const _navEl      = document.getElementById('fruit-nav');
+const _navCounter = document.getElementById('fruit-nav-counter');
+const _navN       = fruitSystem.fruitMeshes.length;
+
+const _updateNavCounter = () => {
+  _navCounter.textContent = `${fruitHighlighter.currentIdx + 1} / ${_navN}`;
+};
+_updateNavCounter();
+_navEl.style.display = 'flex';
+
+const _navigate = (delta) => {
+  const idx = ((fruitHighlighter.currentIdx + delta) + _navN) % _navN;
+  // Jump the highlighter to the target fruit then open it
+  fruitHighlighter.currentIdx = idx;
+  fruitHighlighter._selectFruit(idx);
+  fruitHighlighter.timer = 0;
+  fruitRaycaster.onClick?.(fruitSystem.fruitMeshes[idx]);
+};
+
+document.getElementById('fruit-nav-left') .addEventListener('click', () => _navigate(-1));
+document.getElementById('fruit-nav-right').addEventListener('click', () => _navigate(+1));
+
+// ── Colour mode toggle ───────────────────────────────────────────
+const _cmBtn = document.getElementById('colour-mode-btn');
+_cmBtn.style.display = 'flex';
+
+const _origBg = scene.background; // neon gradient env map
+const _cmModes = [
+  { icon: '◉', mono:  0.0, bgThree: _origBg,                       bgCss: '#060210', rockHex: 0x6e6e60 },
+  { icon: '◑', mono:  1.0, bgThree: new THREE.Color(0x000000),      bgCss: '#000000', rockHex: 0xd0d0d0 },
+  { icon: '◐', mono: -1.0, bgThree: new THREE.Color(0xeeeeee),      bgCss: '#e8e8e8', rockHex: 0x404040 },
+];
+let _cmIdx = 0;
+
+const _applyCm = (idx) => {
+  const m = _cmModes[idx];
+  barkUniforms.uMonochrome.value = m.mono;
+  leafSystem.material.uniforms.uMonochrome.value = m.mono;
+  scene.background = m.bgThree;
+  document.body.style.background = m.bgCss;
+  const col = new THREE.Color(m.rockHex);
+  for (const mesh of ground.meshes) {
+    if (mesh.material?.color) mesh.material.color.copy(col);
+  }
+  _cmBtn.textContent = m.icon;
+  _cmBtn.title       = _cmModes[(idx + 1) % 3].icon === '◉' ? 'Colour mode'
+                     : _cmModes[(idx + 1) % 3].icon === '◑' ? 'Dark mono'
+                     : 'Light mono';
+};
+_applyCm(0);
+
+_cmBtn.addEventListener('click', () => {
+  _cmIdx = (_cmIdx + 1) % 3;
+  _applyCm(_cmIdx);
+});
 
 const totalTime = performance.now() - t0;
 console.log(`[Total generation] ${totalTime.toFixed(0)}ms`);
@@ -311,6 +402,7 @@ const perfMonitor = new PerformanceMonitor({
   leafChunks,
   sunLight,
   renderer,
+  initialQuality: device.isMobile ? 1 : 3,
 });
 
 // ── Keyboard Shortcuts ──────────────────────────────────────
@@ -356,6 +448,8 @@ function animate() {
   barkUniforms.uTime.value = elapsed;
   leafSystem.update(elapsed);
   fruitSystem.update(elapsed);
+  ground.update(elapsed);
+  fruitHighlighter.update(elapsed, delta);
 
   cameraController.update();
 

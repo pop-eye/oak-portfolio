@@ -98,6 +98,10 @@ export class CameraController {
       this.controls.enabled = false;
       this.controls.autoRotate = false;
 
+      // Snapshot the current view so flyBack can return to exactly this angle.
+      this._savedPosition = this.camera.position.clone();
+      this._savedTarget   = this.controls.target.clone();
+
       const cameraToTarget = this.camera.position.clone().sub(targetWorldPos).normalize();
       const viewDistance = 3.5;
       const destination = targetWorldPos.clone().add(
@@ -135,6 +139,11 @@ export class CameraController {
     return new Promise((resolve) => {
       this._isAnimating = true;
 
+      // Return to the exact position and target that were active before flyTo.
+      // Falls back to the default view if no snapshot exists (e.g. first use).
+      const pos    = this._savedPosition ?? new THREE.Vector3(10, 6, 14);
+      const target = this._savedTarget   ?? new THREE.Vector3(0, 8, 0);
+
       const tl = gsap.timeline({
         onComplete: () => {
           this._isAnimating = false;
@@ -144,13 +153,13 @@ export class CameraController {
       });
 
       tl.to(this.camera.position, {
-        x: 10, y: 6, z: 14,
+        x: pos.x, y: pos.y, z: pos.z,
         duration,
         ease: 'power2.inOut',
       }, 0);
 
       tl.to(this.controls.target, {
-        x: 0, y: 8, z: 0,
+        x: target.x, y: target.y, z: target.z,
         duration,
         ease: 'power2.inOut',
         onUpdate: () => this.controls.update(),

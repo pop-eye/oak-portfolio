@@ -10,7 +10,7 @@ export class PerformanceMonitor {
     this._upgradeThreshold = 58;
     this._lastCheck = 0;
     this._checkInterval = 2000;
-    this._qualityLevel = 3; // 0=minimum, 1=low, 2=medium, 3=high
+    this._qualityLevel = config.initialQuality ?? 3; // 0=minimum, 1=low, 2=medium, 3=high
     this._startTime = performance.now();
   }
 

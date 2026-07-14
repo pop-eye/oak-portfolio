@@ -66,6 +66,10 @@ export class TrunkMesh {
     const stubs = this._generateDeadStubs();
     for (const stub of stubs) geometries.push(stub);
 
+    // Surface roots — emerge from the trunk base and taper into the rock.
+    const roots = this._generateRoots();
+    for (const root of roots) geometries.push(root);
+
     if (geometries.length === 0) return null;
 
     const merged = mergeGeometries(geometries, false);
@@ -86,6 +90,32 @@ export class TrunkMesh {
     const nodePositions = segment.map(i => nodes[i].position.clone());
     const nodeRadii = segment.map(i => nodes[i].thickness);
 
+    // Child segments share the fork node as their first element so geometry
+    // connects at the junction, but that fork node carries the *combined*
+    // thickness of every child.  Overriding it with the second node's radius
+    // makes each branch emerge at its own natural width instead of a stump.
+    if (this.skeleton.getChildren(segment[0]).length > 1 && nodeRadii.length >= 2) {
+      nodeRadii[0] = nodeRadii[1];
+    }
+
+    // Enforce a minimum taper along the segment.  Leonardo's pipe model
+    // assigns equal thickness to every node in a long single-child run
+    // (all nodes share the same descendant count), producing an unnatural
+    // uniform-width cylinder.  If the model hasn't already narrowed the
+    // segment enough, blend in a quadratic falloff so the tip is at most
+    // 55% of the base radius.  The Math.min keeps naturally thin segments
+    // unaffected while only capping overly-uniform ones.
+    if (nodeRadii.length >= 4) {
+      const startR    = nodeRadii[0];
+      const targetEnd = startR * 0.55;
+      if (nodeRadii[nodeRadii.length - 1] > targetEnd) {
+        for (let i = 1; i < nodeRadii.length; i++) {
+          const t       = i / (nodeRadii.length - 1);
+          const tapered = startR * (1.0 - 0.45 * t * t);
+          if (nodeRadii[i] > tapered) nodeRadii[i] = tapered;
+        }
+      }
+    }
     const avgRadius = nodeRadii.reduce((a, b) => a + b, 0) / nodeRadii.length;
     const tier = this._getTier(avgRadius);
 
@@ -114,9 +144,13 @@ export class TrunkMesh {
       const frac = nodeT - lo;
       const radius = nodeRadii[lo] * (1 - frac) + nodeRadii[hi] * frac;
 
-      // Layer 1: Spine noise — perturb centreline BEFORE frame computation
+      // Layer 1: Spine noise — perturb centreline BEFORE frame computation.
+      // Fade to zero at both endpoints (t=0 and t=1) so the junction ring
+      // position matches exactly between parent and child segments, closing
+      // the gap that different per-segment seeds would otherwise cause.
       if (this.enableSpineNoise) {
-        this.deformer.applySpineNoise(point, t, radius, branchSeed);
+        const endFade = Math.sin(t * Math.PI);
+        this.deformer.applySpineNoise(point, t, radius, branchSeed, endFade);
       }
 
       sampledPoints.push(point);
@@ -334,8 +368,9 @@ export class TrunkMesh {
       const node = nodes[forkIdx];
       const radius = node.thickness;
 
-      // Skip junctions that are too thin to see
-      if (radius < 0.02) continue;
+      // Only weld visually significant junctions. Thin canopy fork nodes
+      // produce tiny spheres that look like floating particles — skip them.
+      if (radius < 0.06) continue;
 
       const weldRadius = radius * 1.15;
       const segs = radius > 0.15 ? 4 : 3;
@@ -487,6 +522,103 @@ export class TrunkMesh {
       geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
       geom.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
       geom.setAttribute('color', new THREE.Float32BufferAttribute(colors, 3));
+      geom.setIndex(indices);
+      geometries.push(geom);
+    }
+
+    return geometries;
+  }
+
+  /**
+   * Generate surface roots that emerge from the base of the trunk, curve
+   * along the rock surface, and taper out as they disappear into it.
+   */
+  _generateRoots() {
+    const rng = mulberry32(this.config.seed + 222);
+    const geometries = [];
+    const baseR = this.config.trunkBaseRadius;
+
+    const rootCount = 3;
+    const baseAngles = [0.4, 2.3, 4.1]; // fixed spread, offset by rng
+
+    for (let ri = 0; ri < rootCount; ri++) {
+      const angle     = baseAngles[ri] + (rng() - 0.5) * 0.8;
+      const length    = 2.4 + rng() * 2.2;
+      const startR    = baseR * (0.30 + rng() * 0.12);
+      const cos       = Math.cos(angle);
+      const sin_      = Math.sin(angle);
+
+      // Quadratic bezier: trunk surface → rock surface → into rock
+      const p0 = new THREE.Vector3(cos * baseR * 1.25,  0.28 + rng() * 0.18, sin_ * baseR * 1.25);
+      const p1 = new THREE.Vector3(cos * (baseR + length * 0.5), rng() * 0.08 - 0.04, sin_ * (baseR + length * 0.5));
+      const p2 = new THREE.Vector3(cos * (baseR + length), -0.55 - rng() * 0.35, sin_ * (baseR + length));
+
+      const samples = 16;
+      const points  = [];
+      const radii   = [];
+
+      for (let i = 0; i <= samples; i++) {
+        const t  = i / samples;
+        const mt = 1 - t;
+        points.push(new THREE.Vector3(
+          mt * mt * p0.x + 2 * mt * t * p1.x + t * t * p2.x,
+          mt * mt * p0.y + 2 * mt * t * p1.y + t * t * p2.y,
+          mt * mt * p0.z + 2 * mt * t * p1.z + t * t * p2.z,
+        ));
+        // Smooth taper; keep a tiny floor so geometry stays closed
+        radii.push(Math.max(0.006, startR * Math.pow(1 - t, 1.3)));
+      }
+
+      // Add organic gnarliness, faded at endpoints to avoid disconnection gaps
+      const noiseSeed = rng() * 1000;
+      for (let i = 0; i < points.length; i++) {
+        const t = i / (points.length - 1);
+        this.deformer.applySpineNoise(points[i], t, radii[i], noiseSeed, Math.sin(t * Math.PI));
+      }
+
+      const frames    = computeParallelTransportFrames(points);
+      const radSegs   = 7;
+      const phase     = rng();
+      const positions = [];
+      const uvs       = [];
+      const colors    = [];
+
+      for (let i = 0; i < points.length; i++) {
+        const c    = points[i];
+        const { N, B } = frames[i];
+        const r    = radii[i];
+        const arcU = i / (points.length - 1);
+
+        for (let j = 0; j <= radSegs; j++) {
+          const theta = (j / radSegs) * Math.PI * 2;
+          const ct = Math.cos(theta);
+          const st = Math.sin(theta);
+          positions.push(
+            c.x + (N.x * ct + B.x * st) * r,
+            c.y + (N.y * ct + B.y * st) * r,
+            c.z + (N.z * ct + B.z * st) * r,
+          );
+          uvs.push(j / radSegs, arcU);
+          // Roots are rigid — stiffness 0 so wind has no effect.
+          colors.push(0, phase, 0.0);
+        }
+      }
+
+      const indices = [];
+      const stride  = radSegs + 1;
+      for (let i = 0; i < samples; i++) {
+        for (let j = 0; j < radSegs; j++) {
+          const a = i * stride + j;
+          const b = a + stride;
+          indices.push(a, b, a + 1);
+          indices.push(a + 1, b, b + 1);
+        }
+      }
+
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+      geom.setAttribute('uv',       new THREE.Float32BufferAttribute(uvs, 2));
+      geom.setAttribute('color',    new THREE.Float32BufferAttribute(colors, 3));
       geom.setIndex(indices);
       geometries.push(geom);
     }

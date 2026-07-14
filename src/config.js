@@ -1,15 +1,19 @@
 export const TREE_CONFIG = {
   // Space colonization
-  crownRadiusX: 8,
-  crownRadiusY: 6,
-  crownRadiusZ: 8,
-  crownCenterY: 12,
-  attractorCount: 4000,
-  influenceRadius: 2.5,
-  killDistance: 0.8,
+  crownRadiusX: 9,
+  crownRadiusY: 5,
+  crownRadiusZ: 9,
+  crownCenterY: 10,
+  attractorCount: 6000,
+  influenceRadius: 1.8,
+  killDistance: 0.6,
   segmentLength: 0.4,
-  maxIterations: 200,
+  maxIterations: 280,
   trunkHeight: 5,
+
+  // Gravitropism — reduces the steepness of upward growth so branches
+  // spread laterally rather than all pointing toward the sky.
+  gravitropism: 0.35,
 
   // Thickness (Leonardo's pipe model)
   pipeExponent: 2.3,

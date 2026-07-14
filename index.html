@@ -7,7 +7,7 @@
     <style>
       * { margin: 0; padding: 0; box-sizing: border-box; }
       html, body {
-        width: 100%; height: 100%; overflow: hidden; background: #0a0f0a;
+        width: 100%; height: 100%; overflow: hidden; background: #060210;
         overscroll-behavior: none; touch-action: none;
       }
       canvas { display: block; width: 100%; height: 100%; }
@@ -216,6 +216,73 @@
         font-family: system-ui, sans-serif;
         border-radius: 4px;
       }
+      /* ── Fruit Navigation Arrows ───────────────────────── */
+      #fruit-nav {
+        position: fixed;
+        bottom: 30px;
+        left: 50%;
+        transform: translateX(-50%);
+        display: none;          /* shown by JS after loading */
+        align-items: center;
+        gap: 22px;
+        z-index: 200;
+      }
+      .fruit-nav-btn {
+        font-family: 'Courier New', monospace;
+        font-size: 22px;
+        line-height: 1;
+        color: rgba(107,143,91,0.75);
+        background: rgba(0,0,0,0.45);
+        border: 1px solid rgba(107,143,91,0.3);
+        padding: 8px 20px;
+        cursor: pointer;
+        letter-spacing: 0.04em;
+        transition: color .15s, border-color .15s, background .15s;
+        -webkit-tap-highlight-color: transparent;
+        user-select: none;
+      }
+      .fruit-nav-btn:hover,
+      .fruit-nav-btn:active {
+        color: rgba(107,143,91,1);
+        border-color: rgba(107,143,91,0.65);
+        background: rgba(0,0,0,0.7);
+      }
+      #fruit-nav-counter {
+        font-family: 'Courier New', monospace;
+        font-size: 10px;
+        letter-spacing: 0.22em;
+        color: rgba(107,143,91,0.5);
+        min-width: 40px;
+        text-align: center;
+        pointer-events: none;
+      }
+      /* ── Colour Mode Button ───────────────────────────── */
+      #colour-mode-btn {
+        position: fixed;
+        top: 16px;
+        right: 16px;
+        z-index: 200;
+        width: 36px;
+        height: 36px;
+        border-radius: 50%;
+        cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.22);
+        background: rgba(0,0,0,0.45);
+        color: rgba(255,255,255,0.8);
+        font-size: 16px;
+        font-family: system-ui, sans-serif;
+        display: none;          /* shown by JS after loading */
+        align-items: center;
+        justify-content: center;
+        transition: border-color .2s, background .2s;
+        -webkit-tap-highlight-color: transparent;
+        padding: 0;
+        line-height: 1;
+      }
+      #colour-mode-btn:hover {
+        border-color: rgba(255,255,255,0.55);
+        background: rgba(0,0,0,0.7);
+      }
     </style>
   </head>
   <body>
@@ -264,6 +331,16 @@
     <nav id="portfolio-list" class="sr-only" aria-label="Portfolio projects">
       <ul></ul>
     </nav>
+
+    <!-- Fruit navigation arrows (shown by JS once the tree is ready) -->
+    <div id="fruit-nav" role="navigation" aria-label="Navigate projects">
+      <button class="fruit-nav-btn" id="fruit-nav-left"  aria-label="Previous project">&#8249;</button>
+      <span   id="fruit-nav-counter" aria-hidden="true"></span>
+      <button class="fruit-nav-btn" id="fruit-nav-right" aria-label="Next project">&#8250;</button>
+    </div>
+
+    <!-- Colour mode toggle (shown by JS after loading) -->
+    <button id="colour-mode-btn" aria-label="Toggle colour mode" title="Dark mono"></button>
 
     <script type="module" src="/src/main.js"></script>
   </body>

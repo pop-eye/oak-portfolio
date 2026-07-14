@@ -13,9 +13,9 @@ export class TreeSkeleton {
     this._segments = null;
   }
 
-  generate() {
+  async generate() {
     const sc = new SpaceColonization(this.config);
-    this.nodes = sc.generate();
+    this.nodes = await sc.generate();
 
     // Build children lookup
     this._children = new Array(this.nodes.length);

@@ -74,17 +74,24 @@ export class Lighting {
         varying vec3 vWorldPos;
         void main() {
           float y = normalize(vWorldPos).y;
-          // Sky: warm blue top → pale horizon
-          vec3 skyTop = vec3(0.25, 0.35, 0.55);
-          vec3 skyHorizon = vec3(0.55, 0.55, 0.50);
-          vec3 ground = vec3(0.15, 0.12, 0.10);
+
+          // Four-stop gradient: deep-night top → neon purple mid →
+          // bright-magenta horizon glow → dark ground.
+          vec3 skyTop     = vec3(0.02, 0.01, 0.09);
+          vec3 skyMid     = vec3(0.08, 0.02, 0.20);
+          vec3 skyHorizon = vec3(0.28, 0.06, 0.42);
+          vec3 ground     = vec3(0.04, 0.01, 0.08);
+
           vec3 col;
-          if (y > 0.0) {
-            col = mix(skyHorizon, skyTop, smoothstep(0.0, 0.6, y));
+          if (y > 0.25) {
+            col = mix(skyMid, skyTop,     smoothstep(0.25, 1.0,   y));
+          } else if (y > 0.0) {
+            col = mix(skyHorizon, skyMid, smoothstep(0.0,  0.25,  y));
           } else {
-            col = mix(skyHorizon, ground, smoothstep(0.0, -0.3, y));
+            col = mix(skyHorizon, ground, smoothstep(0.0,  -0.25, y));
           }
-          gl_FragColor = vec4(col * 1.5, 1.0);
+
+          gl_FragColor = vec4(col * 1.3, 1.0);
         }
       `,
     });
