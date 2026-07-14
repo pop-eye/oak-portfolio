@@ -10,7 +10,6 @@ uniform float uTranslucencyPower;
 uniform float uTranslucencyScale;
 uniform float uSeasonMix;
 uniform float uMonochrome; // 0=colour  1=dark-mono  -1=light-mono
-uniform float uMobileMode; // 1=skip SSS, 0=full quality
 
 void main() {
   // Alpha test

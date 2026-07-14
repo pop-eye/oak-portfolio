@@ -78,7 +78,7 @@ function getDeviceCapabilities() {
     navigator.hardwareConcurrency <= 4
     || window.innerWidth < 768
   );
-  const pixelRatio = Math.min(window.devicePixelRatio, isMobile ? 1.0 : 2);
+  const pixelRatio = Math.min(window.devicePixelRatio, isMobile ? 1.5 : 2);
   return { isMobile, isLowEnd, pixelRatio };
 }
 
@@ -111,14 +111,14 @@ function populateAccessibleList() {
 populateAccessibleList();
 
 // ── Renderer ────────────────────────────────────────────────
-const renderer = new THREE.WebGLRenderer({ antialias: false, powerPreference: 'high-performance' });
+const renderer = new THREE.WebGLRenderer({ antialias: false });
 renderer.toneMapping = THREE.AgXToneMapping;
 renderer.toneMappingExposure = 1.2;
 renderer.outputColorSpace = THREE.SRGBColorSpace;
 renderer.setPixelRatio(device.pixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
 renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = device.isMobile ? THREE.BasicShadowMap : THREE.PCFSoftShadowMap;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 document.body.appendChild(renderer.domElement);
 
 // ── CSS2D Renderer (for floating labels) ─────────────────────
@@ -185,7 +185,6 @@ const barkUniforms = {
   uTexScale: { value: 0.25 },
   uProceduralWeight: { value: 0.6 },
   uMonochrome:        { value: 0.0 },
-  uMobileMode:        { value: device.isMobile ? 1.0 : 0.0 },
 };
 
 const barkMaterial = new CustomShaderMaterial({
@@ -212,10 +211,9 @@ const treeConfig = device.isMobile ? {
 // Leaf density options: greatly reduced on mobile to stay within GPU
 // memory and fill-rate limits.
 const leafOptions = device.isMobile ? {
-  // Bark shader is heavily simplified on mobile, freeing GPU budget for more leaves.
-  maxClusterSize: device.isLowEnd ? 8 : 16,
-  depthThreshold: 0.28,
-  minSpacing:     device.isLowEnd ? 0.4 : 0.28,
+  maxClusterSize: device.isLowEnd ? 5 : 8,
+  depthThreshold: 0.35,
+  minSpacing:     device.isLowEnd ? 0.55 : 0.4,
 } : {};
 
 // ── Generate Tree ───────────────────────────────────────────
@@ -246,7 +244,6 @@ loader.completeStep('Shaping bark');
 console.time('leaves');
 const leafSystem = new LeafSystem(skeleton, treeConfig, leafOptions);
 const leafChunks = leafSystem.build();
-leafSystem.material.uniforms.uMobileMode.value = device.isMobile ? 1.0 : 0.0;
 for (const chunk of leafChunks) {
   chunk.castShadow = true;
   chunk.receiveShadow = true;
@@ -282,9 +279,6 @@ if (device.isMobile && postProcessing) {
   // N8AO ambient occlusion is too expensive for mobile GPUs.
   if (postProcessing.n8aoPass) postProcessing.n8aoPass.enabled = false;
 }
-// Bypass the post-processing composer entirely on mobile — avoids all
-// full-screen pass overhead since bloom and N8AO are disabled anyway.
-if (device.isMobile) postProcessing = null;
 if (device.isLowEnd && postProcessing) {
   postProcessing.setLowQuality();
 }

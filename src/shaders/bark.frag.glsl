@@ -10,7 +10,6 @@ uniform sampler2D uBarkAO;
 uniform float uTexScale;
 uniform float uProceduralWeight;
 uniform float uMonochrome; // 0=colour  1=dark-mono  -1=light-mono
-uniform float uMobileMode; // 1=skip triplanar+noise, 0=full quality
 
 // ── Bark height function for procedural normals ─────────────
 // Defines fine bark surface: vertical fissures, domain-warped ridges
@@ -62,21 +61,6 @@ vec3 computeBarkNormal(vec2 pos) {
 }
 
 void main() {
-  // ── Mobile fast path ─────────────────────────────────────
-  // Replaces 12+ triplanar texture samples + FBM normals with a single
-  // cheap 2-D noise lookup.  Visually similar, ~10× cheaper on mobile GPU.
-  if (uMobileMode > 0.5) {
-    float h = snoise2D(vWorldPos.xz * 0.5 + vec2(vWorldPos.y * 0.25));
-    float t = h * 0.5 + 0.5;
-    vec3 lo, hi;
-    if      (uMonochrome >  0.5) { lo = vec3(0.52); hi = vec3(0.95); }
-    else if (uMonochrome < -0.5) { lo = vec3(0.06); hi = vec3(0.30); }
-    else                         { lo = vec3(0.12, 0.10, 0.08); hi = vec3(0.45, 0.35, 0.25); }
-    csm_DiffuseColor = vec4(mix(lo, hi, t), 1.0);
-    csm_Roughness = 0.88;
-    return;
-  }
-
   vec3 wNorm = normalize(vWorldNrm);
   vec3 wPos = vWorldPos;
   float sc = uTexScale;
