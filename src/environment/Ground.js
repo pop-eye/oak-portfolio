@@ -145,7 +145,7 @@ export class Ground {
       });
 
       const mesh = new THREE.Mesh(geom, mat);
-      mesh.castShadow   = true;
+      mesh.castShadow   = false; // decorative — not worth shadow-map cost
       mesh.receiveShadow = true;
       // Random initial tilt so they don’t all sit flat
       mesh.rotation.set(

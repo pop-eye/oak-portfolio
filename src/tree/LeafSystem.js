@@ -238,7 +238,14 @@ export class LeafSystem {
     for (const [, indices] of chunks) {
       const count = indices.length;
       const mesh = new THREE.InstancedMesh(geometry, this.material, count);
-      mesh.frustumCulled = true;
+      
+      // Disable frustum culling on mobile devices to prevent leaves from disappearing
+      // This is needed because instanced meshes have small bounding spheres that don't encompass all instances
+      if (this.isMobile) {
+        mesh.frustumCulled = false;
+      } else {
+        mesh.frustumCulled = true;
+      }
 
       const windPhases = new Float32Array(count);
       const colourVars = new Float32Array(count);
@@ -290,8 +297,9 @@ export class LeafSystem {
         uLightDirection: { value: new THREE.Vector3(0.5, 0.8, 0.3).normalize() },
         uTranslucencyPower: { value: 3.0 },
         uTranslucencyScale: { value: 0.6 },
-        uSeasonMix: { value: 0.0 },
+        uSeasonMix:  { value: 0.0 },
         uMonochrome: { value: 0.0 },
+        uMobileMode: { value: 0.0 },
       },
       side: THREE.DoubleSide,
       alphaTest: 0.5,
